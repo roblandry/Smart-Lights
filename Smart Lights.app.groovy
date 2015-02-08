@@ -67,13 +67,13 @@ def motionHandler(evt) {
 
 	//log.debug "Motion Handler - ${evt.name}: ${evt.value}, State: ${state}"
 	if (evt.value == "active") {
-		log.trace "Motion Detected."
+		log.info "Motion Detected."
 		if (motionEnabled && !state.lights) {
 			state.motionCommand = true
 			lights?.on()
 		}
 	} else if (evt.value == "inactive") {
-		log.trace "Motion Ceased."
+		log.info "Motion Ceased."
 		if (motionEnabled && state.lights && state.motionCommand) {
 			state.motionStopTime = now()
 			if(delayMinutes) {
@@ -92,7 +92,7 @@ def switchHandler(evt) {
 	//log.debug "switch Handler 0: State: ${state}"
 
 	if (evt.value == "off") {
-		log.trace "Turning off."
+		log.info "Turning off."
 		if (delayMinutes) { 
 			unschedule ("turnOffMotionAfterDelay")
 			//log.debug "Unscheduled"
@@ -100,9 +100,9 @@ def switchHandler(evt) {
 		state.lights = state.motionCommand = false
 	} else if (evt.value == "on") {
 		if (state.motionCommand == false) {
-			log.trace "Turning on using SWITCH."
+			log.info "Turning on using SWITCH."
 		} else {
-			log.trace "Turning on using MOTION."
+			log.info "Turning on using MOTION."
 		}
 		state.lights = true
 	}
