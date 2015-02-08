@@ -110,7 +110,6 @@ def turnOffMotionAfterDelay() {
 	if (state.motionStopTime && state.lights && motionEnabled) {
 		def elapsed = now() - state.motionStopTime
 		if (elapsed >= (delayMinutes ?: 0) * 60000L) {
-			state.lights = false
 			state.motionCommand = true
 			lights.off()
 		}
