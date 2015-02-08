@@ -26,6 +26,11 @@ definition(
 
 
 preferences {
+	section("Info") {
+		paragraph "Author:  Rob Landry"
+		paragraph "Version: 1.2-dev"
+		paragraph "Date:    2/8/2015"
+	}
 	section("Devices") {
 		input "motion", "capability.motionSensor", title: "Motion Sensor", multiple: false
 		input "lights", "capability.switch", title: "Lights to turn on", multiple: true
