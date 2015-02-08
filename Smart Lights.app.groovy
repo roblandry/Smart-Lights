@@ -1,7 +1,7 @@
 /**
  *  Smart Lights
  *
- *  Version: 1.1
+ *  Version : 1.1-hue
  *
  *  Copyright 2015 Rob Landry
  *
@@ -16,13 +16,14 @@
  *
  */
 definition(
-	name: "Smart Lights",
-	namespace: "roblandry",
-	author: "Rob Landry",
-	description: "Turn on/off lights with motion unless overridden.",
-	category: "Convenience",
-	iconUrl: 	"https://s3.amazonaws.com/smartapp-icons/Meta/light_motion-outlet-luminance.png",
-	iconX2Url: 	"https://s3.amazonaws.com/smartapp-icons/Meta/light_motion-outlet-luminance@2x.png")
+    name: "Smart Lights",
+    namespace: "roblandry",
+    author: "Rob Landry",
+    description: "Turn on/off lights with motion unless overridden.",
+    category: "Convenience",
+    iconUrl: "https://s3.amazonaws.com/smartapp-icons/Convenience/Cat-Convenience.png",
+    iconX2Url: "https://s3.amazonaws.com/smartapp-icons/Convenience/Cat-Convenience@2x.png",
+    iconX3Url: "https://s3.amazonaws.com/smartapp-icons/Convenience/Cat-Convenience@2x.png")
 
 
 preferences {
@@ -34,7 +35,6 @@ preferences {
 		paragraph "Motion sensor delay..."
 		input "motionEnabled", "bool", title: "Enable/Disable Motion Control.", required: true, defaultValue: true
 		input "delayMinutes", "number", title: "Minutes", required: false, defaultValue: 0
-		input "modes", "mode", title: "Only when mode is", multiple: true, required: false
 	}
 }
 
@@ -53,24 +53,40 @@ def initialize() {
 	subscribe(motion, "motion", motionHandler)
 	subscribe(lights, "switch", switchHandler)
 	lights.off()
-	state.lights = false
-	state.motionCommand = false
-	state.switchCommand = false
+	state.previous = [:]
+	state.new = [:]
+	lights.each {
+		state.previous[it.id] = [
+			"switch": it.currentValue("switch"),
+			"level" : it.currentValue("level"),
+			"switchCommand": false,
+			"motionCommand": false
+		]
+	}
+	state.new = state.previous
 	//log.debug "initialize: State: ${state}"
     	//log.debug "Motion Enabled: $motionEnabled"
 }
 
 def motionHandler(evt) {
-	log.debug "Motion Enabled: $motionEnabled"
-	if (!getModeOk()) {return}
+    log.debug "Motion Enabled: $motionEnabled"
+
 	//log.debug "Motion Handler - ${evt.name}: ${evt.value}, State: ${state}"
 	if (evt.value == "active") {
 		log.debug "Motion Detected."
-		if (motionEnabled && !state.lights) {
-			lights?.on()
-			state.lights = true
-			state.motionCommand = true
-			state.switchCommand = false
+		if (motionEnabled) {
+			state.new = [:]
+			lights.each {
+				if (state.previous[it.id].switch != "on") {
+					state.new[it.id] = [
+						"switch": "on",
+						"level" : 100,
+						"switchCommand": false,
+						"motionCommand": true
+					]
+				}
+			}
+			lights.on()
 			//log.debug "motionHandler: State: ${state}"
 
 		} else {
@@ -78,7 +94,7 @@ def motionHandler(evt) {
 		}
 	} else if (evt.value == "inactive") {
 		log.debug "Motion Ceased."
-		if (motionEnabled && state.lights && state.motionCommand) {
+		if (motionEnabled) {
 			state.motionStopTime = now()
 			if(delayMinutes) {
 				// This should replace any existing off schedule
@@ -96,44 +112,61 @@ def switchHandler(evt) {
 	//log.debug "Switch Handler - ${evt.name}: ${evt.value}"
 	if (delayMinutes) { unschedule ("turnOffMotionAfterDelay") }
 
-	if (evt.value == "off") {
-		if (state.motionCommand == false) {
-			log.debug "Turning off using SWITCH."
-		} else {
-			log.debug "Turning off using MOTION."
-		}
-		state.lights = state.motionCommand = state.switchCommand = false
-		//log.debug "switchHandler: State: ${state}"
-	} else if (evt.value == "on") {
-		if (state.motionCommand == false) {
-			state.switchCommand = true
-			log.debug "Turning on using SWITCH."
-		} else {
-			log.debug "Turning on using MOTION."
-		}
-		state.lights = true
-		//log.debug "switchHandler: State: ${state}"
-	}
+	lights.each {
+		if (evt.value == "off") {
+			if (state.new[it.id].motionCommand) {
+				log.debug "Turning ${it} off using MOTION."
+			} else {
+				log.debug "Turning ${it} off using SWITCH."
+			}
+			state.new[it.id] = [
+				"switch": "off",
+				"level" : 100,
+				"switchCommand": false,
+				"motionCommand": false
+			]
 
+		} else if (evt.value == "on") {
+			if (state.new[it.id].motionCommand) {
+				log.debug "Turning ${it} on using MOTION."
+				state.new[it.id] = [
+					"switch": "on",
+					"level" : 100,
+					"switchCommand": false,
+					"motionCommand": true
+				]
+			} else {
+				log.debug "Turning ${it} on using SWITCH."
+				state.new[it.id] = [
+					"switch": "on",
+					"level" : 100,
+					"switchCommand": true,
+					"motionCommand": false
+				]
+			}
+		}
+	}
 }
 
 def turnOffMotionAfterDelay() {
 	//log.debug "turnOffMotionAfterDelay: $state"
 
-	if (state.motionStopTime && state.lights && motionEnabled) {
+	if (state.motionStopTime && motionEnabled) {
 		def elapsed = now() - state.motionStopTime
 		if (elapsed >= (delayMinutes ?: 0) * 60000L) {
-			state.lights = false
-			state.motionCommand = true
-			state.switchCommand = false
+			state.new = [:]
+			lights.each {
+				if (state.previous[it.id].switch != "on") {
+					state.new[it.id] = [
+						"switch": "off",
+						"level" : 100,
+						"switchCommand": false,
+						"motionCommand": true
+					]
+				}
+			}
 			lights.off()
 			//log.debug "turnOffMotionAfterDelay: State: ${state}"
 		}
 	}
-}
-
-private getModeOk() {
-	def result = !modes || modes.contains(location.mode)
-	log.debug "modeOk = $result"
-	result
 }
