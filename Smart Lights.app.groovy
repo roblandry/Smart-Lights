@@ -1,7 +1,7 @@
 /**
  *  Smart Lights
  *
- *  Version: 1.0
+ *  Version: 1.1
  *
  *  Copyright 2015 Rob Landry
  *
@@ -16,14 +16,13 @@
  *
  */
 definition(
-    name: "Smart Lights",
-    namespace: "roblandry",
-    author: "Rob Landry",
-    description: "Turn on/off lights with motion unless overridden.",
-    category: "Convenience",
-    iconUrl: "https://s3.amazonaws.com/smartapp-icons/Convenience/Cat-Convenience.png",
-    iconX2Url: "https://s3.amazonaws.com/smartapp-icons/Convenience/Cat-Convenience@2x.png",
-    iconX3Url: "https://s3.amazonaws.com/smartapp-icons/Convenience/Cat-Convenience@2x.png")
+	name: "Smart Lights",
+	namespace: "roblandry",
+	author: "Rob Landry",
+	description: "Turn on/off lights with motion unless overridden.",
+	category: "Convenience",
+	iconUrl: 	"https://s3.amazonaws.com/smartapp-icons/Meta/light_motion-outlet-luminance.png",
+	iconX2Url: 	"https://s3.amazonaws.com/smartapp-icons/Meta/light_motion-outlet-luminance@2x.png")
 
 
 preferences {
@@ -35,6 +34,7 @@ preferences {
 		paragraph "Motion sensor delay..."
 		input "motionEnabled", "bool", title: "Enable/Disable Motion Control.", required: true, defaultValue: true
 		input "delayMinutes", "number", title: "Minutes", required: false, defaultValue: 0
+		input "modes", "mode", title: "Only when mode is", multiple: true, required: false
 	}
 }
 
@@ -61,8 +61,8 @@ def initialize() {
 }
 
 def motionHandler(evt) {
-    log.debug "Motion Enabled: $motionEnabled"
-
+	log.debug "Motion Enabled: $motionEnabled"
+	if (!getModeOk()) {return}
 	//log.debug "Motion Handler - ${evt.name}: ${evt.value}, State: ${state}"
 	if (evt.value == "active") {
 		log.debug "Motion Detected."
@@ -130,4 +130,10 @@ def turnOffMotionAfterDelay() {
 			//log.debug "turnOffMotionAfterDelay: State: ${state}"
 		}
 	}
+}
+
+private getModeOk() {
+	def result = !modes || modes.contains(location.mode)
+	log.debug "modeOk = $result"
+	result
 }
