@@ -31,7 +31,7 @@ preferences {
 	}
 	section("Preferences") {
 		paragraph "Motion sensor delay..."
-		input "state.motionEnabled", "bool", title: "Enable/Disable Motion Control.", required: true, defaultValue: true
+		input "motionEnabled", "bool", title: "Enable/Disable Motion Control.", required: true, defaultValue: true
 		input "delayMinutes", "number", title: "Minutes", required: false, defaultValue: 0
 	}
 }
@@ -50,19 +50,21 @@ def updated() {
 def initialize() {
 	subscribe(motion, "motion", motionHandler)
 	subscribe(lights, "switch", switchHandler)
-	state.motionEnabled = true
 	lights.off()
 	state.lights = false
 	state.motionCommand = false
 	state.switchCommand = false
 	//log.debug "initialize: State: ${state}"
+    	//log.debug "Motion Enabled: $motionEnabled"
 }
 
 def motionHandler(evt) {
+    log.debug "Motion Enabled: $motionEnabled"
+
 	//log.debug "Motion Handler - ${evt.name}: ${evt.value}, State: ${state}"
 	if (evt.value == "active") {
 		log.debug "Motion Detected."
-		if (state.motionEnabled && state.lights) {
+		if (motionEnabled && !state.lights) {
 			lights?.on()
 			state.lights = true
 			state.motionCommand = true
@@ -74,7 +76,7 @@ def motionHandler(evt) {
 		}
 	} else if (evt.value == "inactive") {
 		log.debug "Motion Ceased."
-		if (state.motionEnabled && !state.lights && state.motionCommand) {
+		if (motionEnabled && state.lights && state.motionCommand) {
 			state.motionStopTime = now()
 			if(delayMinutes) {
 				// This should replace any existing off schedule
@@ -116,14 +118,13 @@ def switchHandler(evt) {
 def turnOffMotionAfterDelay() {
 	//log.debug "turnOffMotionAfterDelay: $state"
 
-	if (state.motionStopTime && state.lights && state.motionEnabled) {
+	if (state.motionStopTime && state.lights && motionEnabled) {
 		def elapsed = now() - state.motionStopTime
 		if (elapsed >= (delayMinutes ?: 0) * 60000L) {
-			lights.off()
-			log.debug "Turning off using MOTION."
 			state.lights = false
 			state.motionCommand = true
 			state.switchCommand = false
+			lights.off()
 			//log.debug "turnOffMotionAfterDelay: State: ${state}"
 		}
 	}
