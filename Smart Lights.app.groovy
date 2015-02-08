@@ -53,7 +53,7 @@ preferences {
 	// Which Light Sensor?
 	section("Using either on this light sensor (optional) or the local sunrise and sunset"){
 		input "lightSensor", "capability.illuminanceMeasurement", required: false
-		input "luxLevel", "number", title: "Darkness Lux level?", defaultValue: 50, required: true
+		input "luxLevel", "number", title: "Darkness Lux level?", defaultValue: 50, required: false
 	}
 	// Sunrise Offset?
 	section ("Sunrise offset (optional)...") {
@@ -96,6 +96,7 @@ def updated() {
 }
 
 def initialize() {
+	log.debug "initialize()"
 	// Let's ignore the current state, and figure it out as we go...
 	state.physical = false
 	state.lastStatus = "off"
@@ -107,10 +108,10 @@ def initialize() {
 	subscribe(motionSensor, "motion", motionHandler)
 
 	// If set, subscribe to physical on/off events
-	if (physicalOverride) {
+	//if (physicalOverride) {
 		subscribe(lights, "switch.on", lightsOnHandler)
 		subscribe(lights, "switch.off", lightsOffHandler)
-	}
+	//}
 
 	// If set, subscribe to double tap events
 	if (doubleTapOn || doubleTapOff) {
@@ -132,26 +133,32 @@ def initialize() {
 
 // if ANYTHING (besides me) turns ON the light, then exit "keepOff" mode
 def lightsOnHandler(evt) {
+	log.debug "lightsOnHandler($evt)"
 	if ( state.flashing ) { return }
+	if (flashConfirm) { flashTheLight() } else { lights.on }
 
 	state.keepOff = false
 }
 
 // if anything turns OFF the light, then reset to motion-controlled
 def lightsOffHandler(evt) {
+	log.debug "lightsOffHandler($evt)"
 	if ( state.flashing ) { return }
+	if (flashConfirm) { flashTheLight() } else { lights.off }
 
 	state.physical = false
 	state.lastStatus = "off"
 }
  
 def switchHandler(evt) {
+	log.debug "switchHandler: $state"
+
 	if ( state.flashing ) { return }
 
 	log.debug "switchHandler: $evt.name: $evt.value"
 
 	// if is a physical event
-	if (evt.isPhysical()) {
+	//if (evt.isPhysical()) {
 		// Is it on?
 		if (evt.value == "on") {
 			// Was it turned on?
@@ -202,10 +209,11 @@ def switchHandler(evt) {
 				}
 			}
 		}
-	}
+	//}
 }
 
 private lastTwoStatesWere(value, states, evt) {
+	log.debug "lastTwoStatesWere()"
 	def result = false
 	if (states) {
 		log.trace "unfiltered: [${states.collect{it.dateCreated + ':' + it.value}.join(', ')}]"
@@ -224,13 +232,15 @@ private lastTwoStatesWere(value, states, evt) {
 }
 
 def motionHandler(evt) {
+	log.debug "motionHandler: $state"
 	log.debug "motionHandler: $evt.name: $evt.value"
 
 	// ignore motion if lights were most recently turned on manually
 	if (state.physical) { return }
 
 	if (evt.value == "active") {
-		if (enabled()) {
+		if (enabled() != "false") {
+			log.debug "motionHandler: enabled"
 			log.debug "turning on light due to motion"
 			lights.on()
 			state.lastStatus = "on"
@@ -254,9 +264,9 @@ def motionHandler(evt) {
 }
 
 def illuminanceHandler(evt) {
+	log.debug "illuminanceHandler: $state"
+	log.debug "illuminanceHandler: $evt.name: $evt.value, lastStatus: $state.lastStatus, motionStopTime: $state.motionStopTime"
 	if ( state.flashing ) { return }
-
-	log.debug "$evt.name: $evt.value, lastStatus: $state.lastStatus, motionStopTime: $state.motionStopTime"
 
 	// its getting light now, we can turn off
 	def lastStatus = state.lastStatus
@@ -292,7 +302,7 @@ def illuminanceHandler(evt) {
 }
 
 def turnOffMotionAfterDelay() {
-	log.debug "In turnOffMotionAfterDelay"
+	log.debug "turnOffMotionAfterDelay()"
 
 	// light was manually turned on don't turn it off
 	if (state.keepOff) {
@@ -315,6 +325,7 @@ def turnOffMotionAfterDelay() {
 //}
 
 def astroCheck() {
+	log.debug "astroCheck()"
 	def s = getSunriseAndSunset(zipCode: zipCode, sunriseOffset: sunriseOffset, sunsetOffset: sunsetOffset)
 	state.riseTime = s.sunrise.time
 	state.setTime = s.sunset.time
@@ -322,6 +333,7 @@ def astroCheck() {
 }
 
 private flashTheLight() {
+	log.debug "flashTheLight()"
 	def doFlash = true
 	def onFor = onFor ?: 200
 	def offFor = offFor ?: 200
@@ -337,20 +349,20 @@ private flashTheLight() {
 
 	if (doFlash) {
 		state.lastActivated = now()
-		def initialActionOn = light.currentSwitch != "on"
+		def initialActionOn = lights.currentValue("switch") != "on"
 		def delay = 1L
 		numFlashes.times {
 			if (initialActionOn) {
-				light.on(delay: delay)
+				lights.on(delay: delay)
 			} else {
-				light.off(delay:delay)
+				lights.off(delay:delay)
 			}
 
 			delay += onFor
 			if (initialActionOn) {
-				light.off(delay: delay)
+				lights.off(delay: delay)
 			} else {
-				light.on(delay:delay)
+				lights.on(delay:delay)
 			}
 
 			delay += offFor
@@ -360,16 +372,15 @@ private flashTheLight() {
 }
 
 private enabled() {
-	def result
+	log.debug "enabled: $state"
+	def result = "true"
 
 	// if OFF was double-tapped, don't turn on
 	if (state.keepOff || state.flashing) {
 		result = false
-	}
-	else if (lightSensor) {
+	} else if (lightSensor) {
 		result = (lightSensor.currentIlluminance as Integer) < luxLevel
-	}
-	else {
+	} else {
 		def t = now()
 		result = t < state.riseTime || t > state.setTime
 	}
@@ -377,9 +388,11 @@ private enabled() {
 }
 
 private getSunriseOffset() {
+	log.debug "getSunriseOffset()"
 	sunriseOffsetValue ? (sunriseOffsetDir == "Before" ? "-$sunriseOffsetValue" : sunriseOffsetValue) : null
 }
 
 private getSunsetOffset() {
+	log.debug "getSunsetOffset()"
 	sunsetOffsetValue ? (sunsetOffsetDir == "Before" ? "-$sunsetOffsetValue" : sunsetOffsetValue) : null
 }
