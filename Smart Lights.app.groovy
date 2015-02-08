@@ -1,398 +1,130 @@
 /**
  *  Smart Lights
  *
- *  Author: SmartThings
+ *  Copyright 2015 Rob Landry
  *
+ *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
+ *  in compliance with the License. You may obtain a copy of the License at:
  *
- * Adapted from SmartThings' Smart NightLight by Barry Burke
+ *      http://www.apache.org/licenses/LICENSE-2.0
  *
- * Changes:
- *		2014/09/23		Added support for physical override:
- *						* If lights turned on manually, don't turn them off if motion stops
- *						  but DO turn them off at sunrise (in case the are forgotten)
- *						* Double-tap ON will stop the motion-initiated timed Off event
- *						* Double-tap OFF will keep the lights off until it gets light, someone manually
- *						  turns on or off the light, or another app turns on the lights.
- * 						* TO RE-ENABLE MOTION CONTROL: Manually turn OFF the lights (single tap)
- *		2014/09/24		Re-enabled multi-motion detector support. Still only a single switch (for now).
- *						Added option to flash the light to confirm double-tap overrides
- *						* Fixed the flasher resetting the overrides
- *		2014/09/25		More work fixing up overrides. New operation mode:
- *						* Manual ON any time overrides motion until next OFF (manual or programmatic)
- *						* Manual OFF resets to motion-controlled
- *						* Double-tap manual OFF turns lights off until next reset (ON or OFF) or tomorrow morning
- *						  (light or sunrise-driven)
- *		2014/09/26		Code clean up around overrides. Single ON tap always disables motion; OFF tap re-enables
- *						motion. Double-OFF stops motion until tomorrow (light/sunrise)
+ *  Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
+ *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
+ *  for the specific language governing permissions and limitations under the License.
  *
- * GitHub: https://github.com/SANdood/Smart-Security-Light
  */
 definition(
-	name:		"Smart Lights",
-	namespace: 	"roblandry",
-	author: 	"Rob Landry",
-	description:	"Turns on lights when it's dark and motion is detected.  Turns lights off when it becomes light or some time after motion ceases. Optionally allows for manual override.",
-	category: 	"Convenience",
-	iconUrl: 	"https://s3.amazonaws.com/smartapp-icons/Meta/light_motion-outlet-luminance.png",
-	iconX2Url: 	"https://s3.amazonaws.com/smartapp-icons/Meta/light_motion-outlet-luminance@2x.png"
-)
+    name: "Smart Lights",
+    namespace: "roblandry",
+    author: "Rob Landry",
+    description: "Turn on/off lights with motion unless overridden.",
+    category: "Convenience",
+    iconUrl: "https://s3.amazonaws.com/smartapp-icons/Convenience/Cat-Convenience.png",
+    iconX2Url: "https://s3.amazonaws.com/smartapp-icons/Convenience/Cat-Convenience@2x.png",
+    iconX3Url: "https://s3.amazonaws.com/smartapp-icons/Convenience/Cat-Convenience@2x.png")
+
 
 preferences {
-	// Which Lights?
-	section("Control these lights..."){
-		input "lights", "capability.switch", multiple: true, required: true
+	section("Devices") {
+		input "motion", "capability.motionSensor", title: "Motion Sensor", multiple: false
+		input "lights", "capability.switch", title: "Lights to turn on", multiple: true
 	}
-	// Which Motion?
-	section("Turning on when it's dark and there's movement..."){
-		input "motionSensor", "capability.motionSensor", title: "Where?", multiple: true, required: true
-	}
-	// Delay?
-	section("And then off when it's light or there's been no movement for..."){
-		input "delayMinutes", "number", title: "Minutes?"
-	}
-	// Which Light Sensor?
-	section("Using either on this light sensor (optional) or the local sunrise and sunset"){
-		input "lightSensor", "capability.illuminanceMeasurement", required: false
-		input "luxLevel", "number", title: "Darkness Lux level?", defaultValue: 50, required: false
-	}
-	// Sunrise Offset?
-	section ("Sunrise offset (optional)...") {
-		input "sunriseOffsetValue", "text", title: "HH:MM", required: false
-		input "sunriseOffsetDir", "enum", title: "Before or After", required: false, metadata: [values: ["Before","After"]]
-	}
-	// Sunset Offset?
-	section ("Sunset offset (optional)...") {
-		input "sunsetOffsetValue", "text", title: "HH:MM", required: false
-		input "sunsetOffsetDir", "enum", title: "Before or After", required: false, metadata: [values: ["Before","After"]]
-	}
-	// Zip Code?
-	section ("Zip code (optional, defaults to location coordinates when location services are enabled)...") {
-		input "zipCode", "text", required: false
-	}
-	// Which Overrides?
-	section ("Overrides") {
-		// Manual On/Off
-		paragraph "Manual ON disables motion control. Manual OFF re-enables motion control."
-		input "physicalOverride", "bool", title: "Physical override?", required: true, defaultValue: false
-		// Double Tap
-		paragraph "Double-tap OFF to lock light off until next ON or sunrise. Single-tap OFF to re-enable to motion-controlled."
-		input "doubleTapOff", "bool", title: "Double-Tap OFF override?", required: true, defaultValue: true
-		// Flash for Confirmation
-		paragraph ""
-		input "flashConfirm", "bool", title: "Flash lights to confirm overrides?", required: true, defaultValue: false
+	section("Preferences") {
+		paragraph "Motion sensor delay..."
+		input "state.motionEnabled", "bool", title: "Enable/Disable Motion Control.", required: true, defaultValue: true
+		input "delayMinutes", "number", title: "Minutes", required: false, defaultValue: 0
 	}
 }
 
 def installed() {
-	log.debug "Installed with settings: $settings"
+	log.debug "Installed with settings: ${settings}"
 	initialize()
 }
 
 def updated() {
-	log.debug "Updated with settings: $settings"
+	log.debug "Updated with settings: ${settings}"
 	unsubscribe()
-	unschedule()
 	initialize()
 }
 
 def initialize() {
-	log.debug "initialize()"
-	// Let's ignore the current state, and figure it out as we go...
-	state.physical = false
-	state.lastStatus = "off"
-	state.keepOff = false
-	state.flashing = false
+	subscribe(motion, "motion", motionHandler)
+	subscribe(lights, "switch", switchHandler)
+	state.motionEnabled = true
 	lights.off()
-
-	// Subscribe to motion events
-	subscribe(motionSensor, "motion", motionHandler)
-
-	// If set, subscribe to physical on/off events
-	//if (physicalOverride) {
-		subscribe(lights, "switch.on", lightsOnHandler)
-		subscribe(lights, "switch.off", lightsOffHandler)
-	//}
-
-	// If set, subscribe to double tap events
-	if (doubleTapOn || doubleTapOff) {
-		subscribe(lights, "switch", switchHandler, [filterEvents: false])
-	}
-
-	// If there is a light sensor, subscribe to illuminance
-	if (lightSensor) {
-		subscribe(lightSensor, "illuminance", illuminanceHandler, [filterEvents: false])
-	// Otherwise, schedule a job to check sunrise/sunset
-	} else {
-		astroCheck()
-		def sec = Math.round(Math.floor(Math.random() * 60))
-		def min = Math.round(Math.floor(Math.random() * 60))
-		def cron = "$sec $min * * * ?"
-		schedule(cron, astroCheck) // check every hour since location can change without event?
-	}
-}
-
-// if ANYTHING (besides me) turns ON the light, then exit "keepOff" mode
-def lightsOnHandler(evt) {
-	log.debug "lightsOnHandler($evt)"
-	if ( state.flashing ) { return }
-	if (flashConfirm) { flashTheLight() } else { lights.on }
-
-	state.keepOff = false
-}
-
-// if anything turns OFF the light, then reset to motion-controlled
-def lightsOffHandler(evt) {
-	log.debug "lightsOffHandler($evt)"
-	if ( state.flashing ) { return }
-	if (flashConfirm) { flashTheLight() } else { lights.off }
-
-	state.physical = false
-	state.lastStatus = "off"
-}
- 
-def switchHandler(evt) {
-	log.debug "switchHandler: $state"
-
-	if ( state.flashing ) { return }
-
-	log.debug "switchHandler: $evt.name: $evt.value"
-
-	// if is a physical event
-	//if (evt.isPhysical()) {
-		// Is it on?
-		if (evt.value == "on") {
-			// Was it turned on?
-			if (physicalOverride) {
-				log.debug "Override ON, turning on all lights and disabling motion-control"
-				state.flashing = true
-				// Turn ALL of them on
-				lights.on()
-				state.flashing = false
-				state.keepOff = false
-				// If there is a time delay, disable it
-				if (delayMinutes) { unschedule ("turnOffMotionAfterDelay") }
-				// If flash confirm is set, flash the lights to notify
-				if (flashConfirm) { flashTheLight() }
-				// Have to set this AFTER we flash the lights :)
-				state.physical = true
-			}
-		// Is it off?
-		} else if (evt.value == "off") {
-			// Was it turned off?
-			if (physicalOverride) {
-				log.debug "Override ON, turning off all lights"
-				state.flashing = true
-				// Turn ALL of them off
-				lights.off()
-				state.flashing = false
-				// Somebody physically turned off the light
-				state.physical = false
-			}
-			// Single off resets keepOff & physical overrides
-			state.keepOff = false
-
-			// use Event rather than DeviceState because we may be changing DeviceState to only store changed values
-			def recentStates = lights.eventsSince(new Date(now() - 4000), [all:true, max: 10]).findAll{it.name == "switch"}
-			log.debug "${recentStates?.size()} states found, last at ${recentStates ? recentStates[0].dateCreated : ''}"
-
-			if (lastTwoStatesWere("off", recentStates, evt)) {
-				log.debug "detected two OFF taps, override motion w/lights OFF"
-
-				// Double tap enables the keepOff
-				if (doubleTapOff) {
-					// Remove the schedule
-					if (delayMinutes) { unschedule("turnOffMotionAfterDelay") }
-					// If flash confirm is set, flash the lights to notify
-					if (flashConfirm) { flashTheLight() }
-					// Have to set this AFTER we flash the lights :)
-					state.keepOff = true
-				}
-			}
-		}
-	//}
-}
-
-private lastTwoStatesWere(value, states, evt) {
-	log.debug "lastTwoStatesWere()"
-	def result = false
-	if (states) {
-		log.trace "unfiltered: [${states.collect{it.dateCreated + ':' + it.value}.join(', ')}]"
-		def onOff = states.findAll { it.isPhysical() || !it.type }
-		log.trace "filtered:   [${onOff.collect{it.dateCreated + ':' + it.value}.join(', ')}]"
-
-		// This test was needed before the change to use Event rather than DeviceState. It should never pass now.
-		if (onOff[0].date.before(evt.date)) {
-			log.warn "Last state does not reflect current event, evt.date: ${evt.dateCreated}, state.date: ${onOff[0].dateCreated}"
-			result = evt.value == value && onOff[0].value == value
-		} else {
-			result = onOff.size() > 1 && onOff[0].value == value && onOff[1].value == value
-		}
-	}
-	result
+	state.lights = false
+	state.motionCommand = false
+	state.switchCommand = false
+	//log.debug "initialize: State: ${state}"
 }
 
 def motionHandler(evt) {
-	log.debug "motionHandler: $state"
-	log.debug "motionHandler: $evt.name: $evt.value"
-
-	// ignore motion if lights were most recently turned on manually
-	if (state.physical) { return }
-
+	//log.debug "Motion Handler - ${evt.name}: ${evt.value}, State: ${state}"
 	if (evt.value == "active") {
-		if (enabled() != "false") {
-			log.debug "motionHandler: enabled"
-			log.debug "turning on light due to motion"
-			lights.on()
-			state.lastStatus = "on"
-		}
-		state.motionStopTime = null
-	} else {
-		if (state.keepOff) {
-			if (delayMinutes) { unschedule("turnOffMotionAfterDelay") }
-			return 
-		}
-        
-		state.motionStopTime = now()
-		if(delayMinutes) {
-			// This should replace any existing off schedule
-			unschedule("turnOffMotionAfterDelay")
-			runIn(delayMinutes*60, "turnOffMotionAfterDelay", [overwrite: false])
+		log.debug "Motion Detected."
+		if (state.motionEnabled && state.lights) {
+			lights?.on()
+			state.lights = true
+			state.motionCommand = true
+			state.switchCommand = false
+			//log.debug "motionHandler: State: ${state}"
+
 		} else {
-			turnOffMotionAfterDelay()
+			//log.debug "motionHandler: State: ${state}"
+		}
+	} else if (evt.value == "inactive") {
+		log.debug "Motion Ceased."
+		if (state.motionEnabled && !state.lights && state.motionCommand) {
+			state.motionStopTime = now()
+			if(delayMinutes) {
+				// This should replace any existing off schedule
+				unschedule("turnOffMotionAfterDelay")
+				runIn(delayMinutes*60, "turnOffMotionAfterDelay", [overwrite: false])
+			} else {
+				turnOffMotionAfterDelay()
+			}
+			//log.debug "motionHandler: State: ${state}"
 		}
 	}
 }
 
-def illuminanceHandler(evt) {
-	log.debug "illuminanceHandler: $state"
-	log.debug "illuminanceHandler: $evt.name: $evt.value, lastStatus: $state.lastStatus, motionStopTime: $state.motionStopTime"
-	if ( state.flashing ) { return }
+def switchHandler(evt) {
+	//log.debug "Switch Handler - ${evt.name}: ${evt.value}"
+	if (delayMinutes) { unschedule ("turnOffMotionAfterDelay") }
 
-	// its getting light now, we can turn off
-	def lastStatus = state.lastStatus
-
-	// reset keepOff
-	if (state.keepOff && evt.integerValue >= luxLevel) { state.keepOff = false }
-
-	// whether or not it was manually turned on
-	if ((lastStatus != "off") && (evt.integerValue >= luxLevel)) {
-		lights.off()
-		state.lastStatus = "off"
-		state.physical = false
-		// it's a new day
-		state.keepOff = false
-	} else if (state.motionStopTime) {
-		// light was manually turned on
-		if (state.physical) { return }
-
-		if (lastStatus != "off") {
-			def elapsed = now() - state.motionStopTime
-			if (elapsed >= (delayMinutes ?: 0) * 60000L) {
-				lights.off()
-				state.lastStatus = "off"
-				state.keepOff = false
-			}
+	if (evt.value == "off") {
+		if (state.motionCommand == false) {
+			log.debug "Turning off using SWITCH."
+		} else {
+			log.debug "Turning off using MOTION."
 		}
-	} else if (lastStatus != "on" && evt.integerValue < luxLevel) {
-		// or we locked it off for the night
-		if ( state.keepOff || state.physical ) { return }
-		lights.on()
-		state.lastStatus = "on"
+		state.lights = state.motionCommand = state.switchCommand = false
+		//log.debug "switchHandler: State: ${state}"
+	} else if (evt.value == "on") {
+		if (state.motionCommand == false) {
+			state.switchCommand = true
+			log.debug "Turning on using SWITCH."
+		} else {
+			log.debug "Turning on using MOTION."
+		}
+		state.lights = true
+		//log.debug "switchHandler: State: ${state}"
 	}
+
 }
 
 def turnOffMotionAfterDelay() {
-	log.debug "turnOffMotionAfterDelay()"
+	//log.debug "turnOffMotionAfterDelay: $state"
 
-	// light was manually turned on don't turn it off
-	if (state.keepOff) {
-		if (delayMinutes) { unschedule("turnOffMotionAfterDelay") }
-		return 
-	}
-
-	if (state.motionStopTime && state.lastStatus != "off") {
+	if (state.motionStopTime && state.lights && state.motionEnabled) {
 		def elapsed = now() - state.motionStopTime
 		if (elapsed >= (delayMinutes ?: 0) * 60000L) {
 			lights.off()
-			state.lastStatus = "off"
+			log.debug "Turning off using MOTION."
+			state.lights = false
+			state.motionCommand = true
+			state.switchCommand = false
+			//log.debug "turnOffMotionAfterDelay: State: ${state}"
 		}
 	}
-}
-
-//def scheduleCheck() {
-//	log.debug "In scheduleCheck - skipping"
-	//turnOffMotionAfterDelay()
-//}
-
-def astroCheck() {
-	log.debug "astroCheck()"
-	def s = getSunriseAndSunset(zipCode: zipCode, sunriseOffset: sunriseOffset, sunsetOffset: sunsetOffset)
-	state.riseTime = s.sunrise.time
-	state.setTime = s.sunset.time
-	log.debug "rise: ${new Date(state.riseTime)}($state.riseTime), set: ${new Date(state.setTime)}($state.setTime)"
-}
-
-private flashTheLight() {
-	log.debug "flashTheLight()"
-	def doFlash = true
-	def onFor = onFor ?: 200
-	def offFor = offFor ?: 200
-	def numFlashes = numFlashes ?: 2
-
-	state.flashing = true
-
-	if (state.lastActivated) {
-		def elapsed = now() - state.lastActivated
-		def sequenceTime = (numFlashes + 1) * (onFor + offFor)
-		doFlash = elapsed > sequenceTime
-	}
-
-	if (doFlash) {
-		state.lastActivated = now()
-		def initialActionOn = lights.currentValue("switch") != "on"
-		def delay = 1L
-		numFlashes.times {
-			if (initialActionOn) {
-				lights.on(delay: delay)
-			} else {
-				lights.off(delay:delay)
-			}
-
-			delay += onFor
-			if (initialActionOn) {
-				lights.off(delay: delay)
-			} else {
-				lights.on(delay:delay)
-			}
-
-			delay += offFor
-		}
-	}
-	state.flashing = false
-}
-
-private enabled() {
-	log.debug "enabled: $state"
-	def result = "true"
-
-	// if OFF was double-tapped, don't turn on
-	if (state.keepOff || state.flashing) {
-		result = false
-	} else if (lightSensor) {
-		result = (lightSensor.currentIlluminance as Integer) < luxLevel
-	} else {
-		def t = now()
-		result = t < state.riseTime || t > state.setTime
-	}
-	result
-}
-
-private getSunriseOffset() {
-	log.debug "getSunriseOffset()"
-	sunriseOffsetValue ? (sunriseOffsetDir == "Before" ? "-$sunriseOffsetValue" : sunriseOffsetValue) : null
-}
-
-private getSunsetOffset() {
-	log.debug "getSunsetOffset()"
-	sunsetOffsetValue ? (sunsetOffsetDir == "Before" ? "-$sunsetOffsetValue" : sunsetOffsetValue) : null
 }
