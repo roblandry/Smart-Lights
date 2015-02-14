@@ -28,7 +28,7 @@ definition(
 preferences {
 	section("Info") {
 		paragraph "Author:  Rob Landry"
-		paragraph "Version: 1.2-dev"
+		paragraph "Version: 1.2"
 		paragraph "Date:    2/13/2015"
 	}
 	section("Devices") {
