@@ -1,7 +1,7 @@
 /**
  *  Smart Lights
  *
- *  Version: 1.1
+ *  Version: 1.2-dev
  *
  *  Copyright 2015 Rob Landry
  *
@@ -26,6 +26,11 @@ definition(
 
 
 preferences {
+	section("Info") {
+		paragraph "Author:  Rob Landry"
+		paragraph "Version: 1.2-dev"
+		paragraph "Date:    2/13/2015"
+	}
 	section("Devices") {
 		input "motion", "capability.motionSensor", title: "Motion Sensor", multiple: false
 		input "lights", "capability.switch", title: "Lights to turn on", multiple: true
@@ -34,7 +39,6 @@ preferences {
 		paragraph "Motion sensor delay..."
 		input "motionEnabled", "bool", title: "Enable/Disable Motion Control.", required: true, defaultValue: true
 		input "delayMinutes", "number", title: "Minutes", required: false, defaultValue: 0
-		input "modes", "mode", title: "Only when mode is", multiple: true, required: false
 	}
 }
 
@@ -52,33 +56,27 @@ def updated() {
 def initialize() {
 	subscribe(motion, "motion", motionHandler)
 	subscribe(lights, "switch", switchHandler)
-	lights.off()
-	state.lights = false
+	state.lights = (lights.currentValue("switch")[0] == "on") ? true : false
 	state.motionCommand = false
-	state.switchCommand = false
-	//log.debug "initialize: State: ${state}"
-    	//log.debug "Motion Enabled: $motionEnabled"
+    state.motionStopTime = null
+	log.debug "initialize: State: ${state}"
 }
 
 def motionHandler(evt) {
 	log.debug "Motion Enabled: $motionEnabled"
-	if (!getModeOk()) {return}
-	//log.debug "Motion Handler - ${evt.name}: ${evt.value}, State: ${state}"
-	if (evt.value == "active") {
-		log.debug "Motion Detected."
-		if (motionEnabled && !state.lights) {
-			lights?.on()
-			state.lights = true
-			state.motionCommand = true
-			state.switchCommand = false
-			//log.debug "motionHandler: State: ${state}"
+	log.debug "Motion Handler - ${evt.name}: ${evt.value}, State: ${state}"
 
-		} else {
-			//log.debug "motionHandler: State: ${state}"
+	if (!motionEnabled) {return}
+
+	if (evt.value == "active") {
+		log.info "Motion Detected."
+		if (!state.lights) {
+			state.motionCommand = true
+			lights?.on()
 		}
 	} else if (evt.value == "inactive") {
-		log.debug "Motion Ceased."
-		if (motionEnabled && state.lights && state.motionCommand) {
+		log.info "Motion Ceased."
+		if (state.lights && state.motionCommand) {
 			state.motionStopTime = now()
 			if(delayMinutes) {
 				// This should replace any existing off schedule
@@ -87,53 +85,41 @@ def motionHandler(evt) {
 			} else {
 				turnOffMotionAfterDelay()
 			}
-			//log.debug "motionHandler: State: ${state}"
 		}
 	}
 }
 
 def switchHandler(evt) {
-	//log.debug "Switch Handler - ${evt.name}: ${evt.value}"
-	if (delayMinutes) { unschedule ("turnOffMotionAfterDelay") }
+	log.debug "Switch Handler Start: ${evt.name}: ${evt.value}, State: ${state}"
 
-	if (evt.value == "off") {
-		if (state.motionCommand == false) {
-			log.debug "Turning off using SWITCH."
-		} else {
-			log.debug "Turning off using MOTION."
-		}
-		state.lights = state.motionCommand = state.switchCommand = false
-		//log.debug "switchHandler: State: ${state}"
-	} else if (evt.value == "on") {
-		if (state.motionCommand == false) {
-			state.switchCommand = true
-			log.debug "Turning on using SWITCH."
-		} else {
-			log.debug "Turning on using MOTION."
-		}
-		state.lights = true
-		//log.debug "switchHandler: State: ${state}"
+	if (delayMinutes) { 
+			unschedule ("turnOffMotionAfterDelay")
+			//log.debug "Unscheduled"
 	}
 
+	if (evt.value == "off") {
+		log.info "Turning off."
+        state.motionCommand = false
+	} else if (evt.value == "on") {
+		if (state.motionCommand == false) {
+			log.info "Turning on using SWITCH."
+		} else {
+			log.info "Turning on using MOTION."
+		}
+	}
+
+	state.lights = (lights.currentValue("switch")[0] == "on") ? true : false
+	log.debug "Switch Handler End: ${evt.name}: ${evt.value}, State: ${state}"
 }
 
 def turnOffMotionAfterDelay() {
-	//log.debug "turnOffMotionAfterDelay: $state"
+	log.debug "turnOffMotionAfterDelay: State: ${state}"
 
 	if (state.motionStopTime && state.lights && motionEnabled) {
 		def elapsed = now() - state.motionStopTime
 		if (elapsed >= (delayMinutes ?: 0) * 60000L) {
-			state.lights = false
 			state.motionCommand = true
-			state.switchCommand = false
 			lights.off()
-			//log.debug "turnOffMotionAfterDelay: State: ${state}"
 		}
 	}
-}
-
-private getModeOk() {
-	def result = !modes || modes.contains(location.mode)
-	log.debug "modeOk = $result"
-	result
 }
