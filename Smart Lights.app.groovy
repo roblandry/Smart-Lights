@@ -29,7 +29,7 @@ preferences {
 	section("Info") {
 		paragraph "Author:  Rob Landry"
 		paragraph "Version: 1.2-dev"
-		paragraph "Date:    2/8/2015"
+		paragraph "Date:    2/13/2015"
 	}
 	section("Devices") {
 		input "motion", "capability.motionSensor", title: "Motion Sensor", multiple: false
@@ -56,25 +56,27 @@ def updated() {
 def initialize() {
 	subscribe(motion, "motion", motionHandler)
 	subscribe(lights, "switch", switchHandler)
-	lights.off()
-	state.lights = false
+	state.lights = (lights.currentValue("switch")[0] == "on") ? true : false
 	state.motionCommand = false
-	//log.debug "initialize: State: ${state}"
+    state.motionStopTime = null
+	log.debug "initialize: State: ${state}"
 }
 
 def motionHandler(evt) {
 	log.debug "Motion Enabled: $motionEnabled"
+	log.debug "Motion Handler - ${evt.name}: ${evt.value}, State: ${state}"
 
-	//log.debug "Motion Handler - ${evt.name}: ${evt.value}, State: ${state}"
+	if (!motionEnabled) {return}
+
 	if (evt.value == "active") {
 		log.info "Motion Detected."
-		if (motionEnabled && !state.lights) {
+		if (!state.lights) {
 			state.motionCommand = true
 			lights?.on()
 		}
 	} else if (evt.value == "inactive") {
 		log.info "Motion Ceased."
-		if (motionEnabled && state.lights && state.motionCommand) {
+		if (state.lights && state.motionCommand) {
 			state.motionStopTime = now()
 			if(delayMinutes) {
 				// This should replace any existing off schedule
@@ -88,29 +90,30 @@ def motionHandler(evt) {
 }
 
 def switchHandler(evt) {
-	//log.debug "Switch Handler - ${evt.name}: ${evt.value}"
-	//log.debug "switch Handler 0: State: ${state}"
+	log.debug "Switch Handler Start: ${evt.name}: ${evt.value}, State: ${state}"
+
+	if (delayMinutes) { 
+			unschedule ("turnOffMotionAfterDelay")
+			//log.debug "Unscheduled"
+	}
 
 	if (evt.value == "off") {
 		log.info "Turning off."
-		if (delayMinutes) { 
-			unschedule ("turnOffMotionAfterDelay")
-			//log.debug "Unscheduled"
-		}
-		state.lights = state.motionCommand = false
+        state.motionCommand = false
 	} else if (evt.value == "on") {
 		if (state.motionCommand == false) {
 			log.info "Turning on using SWITCH."
 		} else {
 			log.info "Turning on using MOTION."
 		}
-		state.lights = true
 	}
 
+	state.lights = (lights.currentValue("switch")[0] == "on") ? true : false
+	log.debug "Switch Handler End: ${evt.name}: ${evt.value}, State: ${state}"
 }
 
 def turnOffMotionAfterDelay() {
-	//log.debug "turnOffMotionAfterDelay: State: ${state}"
+	log.debug "turnOffMotionAfterDelay: State: ${state}"
 
 	if (state.motionStopTime && state.lights && motionEnabled) {
 		def elapsed = now() - state.motionStopTime
