@@ -144,12 +144,12 @@ def switchHandler(evt) {
 	// if we are turning off the light
 	if (evt.value == "off") {
 		log.info "Turning off."
+		state.motionProgramActive = false
 
 		// update initial values and reset the motion command
 		lights.each {
 			state.thelights[it.id].initialValue.switch =  it.currentValue("switch")
 			state.thelights[it.id].motionCommand = false
-				]
 		}
 
 	// if we are turning it on, let us know
@@ -183,8 +183,8 @@ def turnOffMotionAfterDelay() {
 			// set the motion command to true, and turn off
 			lights.each {
 				if ((state.thelights[it.id].currentValue.switch == "on") && 
+					(state.thelights[it.id].motionCommand) && 
 					(state.thelights[it.id].initialValue.switch == "off")) {
-					state.thelights[it.id].motionCommand = "true"
 					it.off()
 				}
 			}
