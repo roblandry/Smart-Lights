@@ -1,7 +1,7 @@
 /**
  *  Smart Lights
  *
- *  Version: 1.2-dev
+ *  Version: 1.2
  *
  *  Copyright 2015 Rob Landry
  *
@@ -56,7 +56,7 @@ def updated() {
 def initialize() {
 	subscribe(motion, "motion", motionHandler)
 	subscribe(lights, "switch", switchHandler)
-	state.lights = (lights.currentValue("switch")[0] == "on") ? true : false
+	state.lights = (lights.currentValue("switch")[0] == "on") ? true : false // only looks at first light
 	state.motionCommand = false
     state.motionStopTime = null
 	log.debug "initialize: State: ${state}"
